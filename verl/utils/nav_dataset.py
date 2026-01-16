@@ -1,11 +1,17 @@
 import os
 import json
 import random
-import torch
-from torch.utils.data import Dataset, DataLoader
+try:
+    import torch
+    from torch.utils.data import DataLoader, Dataset
+except ModuleNotFoundError:
+    torch = None
+    DataLoader = None
+
+    class Dataset:
+        pass
 from PIL import Image
 from collections import defaultdict
-from verl.utils.dataset import RLHFDataset
 import hashlib
 
 class NavDataset(Dataset):
@@ -82,7 +88,7 @@ class NavDataset(Dataset):
                 if generated_question:
                     goals.append(generated_question)
                 
-                eqa = data.get("eqa", "")
+                eqa = data.get("eqa", "") or data.get("eqa_question", "")
                 if eqa:
                     goals.append(eqa)
 
@@ -97,8 +103,6 @@ class NavDataset(Dataset):
                 # Deduplicate and sort
                 goals = sorted(list(set(goals)))
 
-                retrieved_experience = data.get("retrieved_experience", "None")
-                answer = data.get("answer", "")
                 points = data.get("points", [])
                 
                 if not goals or not points:
@@ -118,26 +122,41 @@ class NavDataset(Dataset):
                 metadata_map = {}
                 for p in points:
                     p_idx = p["point_idx"]
-                    for v in p.get("views", []):
-                        fname = v.get("filename", "")
-                        if not fname:
-                            continue
-                        # Store metadata keyed by (point_idx, filename)
-                        # filename in json is just the name, e.g. "point_0.png"
-                        
-                        # Extract labels string
-                        labels = v.get("all_2d_labels", [])
-                        if isinstance(labels, list):
-                            labels_str = ", ".join([str(l) for l in labels])
-                        else:
-                            labels_str = str(labels)
-                            
-                        sg_text = v.get("scene_graph_text", "")
-                        
-                        metadata_map[(p_idx, fname)] = {
-                            "labels": labels_str,
-                            "scene_graph": sg_text
-                        }
+                    views = p.get("views", None)
+                    if isinstance(views, list) and len(views) > 0:
+                        for v in views:
+                            fname = v.get("filename", "")
+                            if not fname:
+                                continue
+                            labels = v.get("all_2d_labels", [])
+                            if isinstance(labels, list):
+                                labels_str = ", ".join([str(l) for l in labels])
+                            else:
+                                labels_str = str(labels)
+                            sg_text = v.get("scene_graph_text", "")
+                            metadata_map[(p_idx, fname)] = {"labels": labels_str, "scene_graph": sg_text}
+                    else:
+                        view_front = p.get("view_front", None)
+                        if isinstance(view_front, dict):
+                            fname = view_front.get("filename", "")
+                            if fname:
+                                labels = view_front.get("all_2d_labels", [])
+                                if isinstance(labels, list):
+                                    labels_str = ", ".join([str(l) for l in labels])
+                                else:
+                                    labels_str = str(labels)
+                                sg_text = view_front.get("scene_graph_text", "")
+                                metadata_map[(p_idx, fname)] = {"labels": labels_str, "scene_graph": sg_text}
+
+                                if fname.endswith("_front.png"):
+                                    left_name = fname[: -len("_front.png")] + "_left.png"
+                                    right_name = fname[: -len("_front.png")] + "_right.png"
+                                    left_path = os.path.join(seed_path, f"point_{p_idx}", left_name)
+                                    right_path = os.path.join(seed_path, f"point_{p_idx}", right_name)
+                                    if os.path.exists(left_path):
+                                        metadata_map[(p_idx, left_name)] = {"labels": "", "scene_graph": ""}
+                                    if os.path.exists(right_path):
+                                        metadata_map[(p_idx, right_name)] = {"labels": "", "scene_graph": ""}
 
                 # Create samples for each goal and point Y (except point 0, as we need Z < Y)
                 for goal_text in goals:
@@ -159,10 +178,18 @@ class NavDataset(Dataset):
                         img_y_name = f"point_{idx_y}.png"
                         img_y_120_name = f"point_{idx_y}_120.png"
                         img_y_neg120_name = f"point_{idx_y}_-120.png"
-                        
+
                         img_y_path = os.path.join(point_y_dir, img_y_name)
                         img_y_120_path = os.path.join(point_y_dir, img_y_120_name)
                         img_y_neg120_path = os.path.join(point_y_dir, img_y_neg120_name)
+
+                        if not (os.path.exists(img_y_path) and os.path.exists(img_y_120_path) and os.path.exists(img_y_neg120_path)):
+                            img_y_name = f"point_{idx_y}_front.png"
+                            img_y_120_name = f"point_{idx_y}_left.png"
+                            img_y_neg120_name = f"point_{idx_y}_right.png"
+                            img_y_path = os.path.join(point_y_dir, img_y_name)
+                            img_y_120_path = os.path.join(point_y_dir, img_y_120_name)
+                            img_y_neg120_path = os.path.join(point_y_dir, img_y_neg120_name)
                         
                         if not (os.path.exists(img_y_path) and os.path.exists(img_y_120_path) and os.path.exists(img_y_neg120_path)):
                             continue
@@ -184,6 +211,19 @@ class NavDataset(Dataset):
                         meta_y = metadata_map.get((idx_y, img_y_name), {"labels": "", "scene_graph": ""})
                         meta_y_120 = metadata_map.get((idx_y, img_y_120_name), {"labels": "", "scene_graph": ""})
                         meta_y_neg120 = metadata_map.get((idx_y, img_y_neg120_name), {"labels": "", "scene_graph": ""})
+
+                        retrieved_experience = data.get("retrieved_experience", "None")
+                        if retrieved_experience in (None, "", "None"):
+                            point_info = points_map.get(idx_y, {})
+                            if goal_text == eqa:
+                                retrieved_experience = point_info.get("eqa_experience", "None")
+                            else:
+                                retrieved_experience = point_info.get("objectgoal_experience", "None")
+
+                        if goal_text == eqa:
+                            answer = data.get("answer", "") or data.get("eqa_answer", "")
+                        else:
+                            answer = data.get("answer", "")
 
                         sample = {
                             "eps_path": eps_path,
@@ -226,6 +266,8 @@ class NavDataset(Dataset):
 
     def __getitem__(self, idx):
         sample = self.samples[idx]
+        if torch is None:
+            raise ModuleNotFoundError("torch is required to use NavDataset.__getitem__")
         
         # Select random Z
         z_idx = random.choice(sample["possible_z_indices"])
@@ -236,6 +278,17 @@ class NavDataset(Dataset):
         z_dir = os.path.join(sample["seed_path"], f"point_{z_idx}")
         img_z_name = f"point_{z_idx}.png"
         img_z_path = os.path.join(z_dir, img_z_name)
+        if not os.path.exists(img_z_path):
+            img_z_name = f"point_{z_idx}_front.png"
+            img_z_path = os.path.join(z_dir, img_z_name)
+        if not os.path.exists(img_z_path):
+            try:
+                candidates = [f for f in os.listdir(z_dir) if f.endswith(".png")]
+            except Exception:
+                candidates = []
+            if candidates:
+                img_z_name = candidates[0]
+                img_z_path = os.path.join(z_dir, img_z_name)
         
         # Get Z metadata
         meta_z = sample["metadata_map"].get((z_idx, img_z_name), {"labels": "", "scene_graph": ""})
@@ -263,7 +316,11 @@ class NavDataset(Dataset):
                 continue
             if fname.endswith("_120.png"):
                 view_label = "120"
+            elif fname.endswith("_left.png"):
+                view_label = "120"
             elif fname.endswith("_-120.png"):
+                view_label = "-120"
+            elif fname.endswith("_right.png"):
                 view_label = "-120"
             else:
                 view_label = "center"
