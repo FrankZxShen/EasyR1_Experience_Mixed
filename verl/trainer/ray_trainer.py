@@ -323,12 +323,13 @@ class RayPPOTrainer:
             self.best_val_reward_score = self.val_reward_score
             self.best_global_step = self.global_step
 
-        remove_obsolete_ckpt(
-            self.config.trainer.save_checkpoint_path,
-            self.global_step,
-            self.best_global_step,
-            self.config.trainer.save_limit,
-        )
+        if not self.config.trainer.disable_save_limit:
+            remove_obsolete_ckpt(
+                self.config.trainer.save_checkpoint_path,
+                self.global_step,
+                self.best_global_step,
+                self.config.trainer.save_limit,
+            )
         folder_path = os.path.join(self.config.trainer.save_checkpoint_path, f"global_step_{self.global_step}")
         actor_path = os.path.join(folder_path, "actor")
         self.actor_rollout_ref_wg.save_checkpoint(actor_path, save_model_only=self.config.trainer.save_model_only)
@@ -688,7 +689,12 @@ class RayPPOTrainer:
 
                         metrics.update(val_metrics)
 
-                    if self.config.trainer.save_freq > 0 and self.global_step % self.config.trainer.save_freq == 0:
+                    save_step_freq = (
+                        self.config.trainer.save_step_freq
+                        if self.config.trainer.save_step_freq > 0
+                        else self.config.trainer.save_freq
+                    )
+                    if save_step_freq > 0 and self.global_step % save_step_freq == 0:
                         with timer("save_checkpoint", timing_raw):
                             self._save_checkpoint()
 
@@ -711,7 +717,12 @@ class RayPPOTrainer:
 
                 print(f"Final validation metrics:\n{convert_dict_to_str(unflatten_dict(val_metrics))}")
 
-            if self.config.trainer.save_freq <= 0 or self.global_step % self.config.trainer.save_freq != 0:
+            save_step_freq = (
+                self.config.trainer.save_step_freq
+                if self.config.trainer.save_step_freq > 0
+                else self.config.trainer.save_freq
+            )
+            if save_step_freq <= 0 or self.global_step % save_step_freq != 0:
                 self._save_checkpoint()
         except Exception as e:
             err = {
