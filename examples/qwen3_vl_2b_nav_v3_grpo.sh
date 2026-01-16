@@ -2,7 +2,7 @@
 
 set -x
 
-export WANDB_API_KEY="c352d0cd382616489b8f6fe9d12d710b06b0f69d"
+export WANDB_API_KEY="XXX"
 MODEL_PATH=Qwen/Qwen3-VL-2B-Instruct  # replace it with your local file path
 EXPERIMENT_NAME=Qwen3_vl_2b_nav_grpo_eqa+obj_1228
 SAVE_PATH=/home/szx/project/NavEvolver_v2/DATA/results/${EXPERIMENT_NAME}
