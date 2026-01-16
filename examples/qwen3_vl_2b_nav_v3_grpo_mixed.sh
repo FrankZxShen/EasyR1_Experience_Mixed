@@ -8,7 +8,7 @@ EXPERIMENT_NAME=Qwen3_vl_2b_nav_grpo_eqa+obj_260115_mix_data
 SAVE_PATH=/workdir/szx/nav_data/data/LLM_results/${EXPERIMENT_NAME}
 
 CUDA_VISIBLE_DEVICES=2,3 python3 -m verl.trainer.main \
-    config=examples/config_low_mem.yaml \
+    config=examples/config_low_mem_mixed.yaml \
     data.train_files=/home/whj/szx_project/EasyR1/DATA/CG-DATA-InteriorGS:0.5,/home/whj/szx_project/EasyR1/DATA/CG-DATA-5_qwen3vlplus:0.5 \
     data.val_files=/home/whj/szx_project/EasyR1/DATA/CG-DATA-InteriorGS:0.5,/home/whj/szx_project/EasyR1/DATA/CG-DATA-5_qwen3vlplus:0.5 \
     data.usage_ratio=1 \
