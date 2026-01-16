@@ -25,9 +25,32 @@ from typing import Any, Optional, Union
 
 import numpy as np
 import yaml
-from codetiming import Timer
 from packaging import version
 from yaml import Dumper
+
+try:
+    from codetiming import Timer
+except ModuleNotFoundError:
+    import time
+
+    class Timer:
+        def __init__(self, name: str = "", logger=None):
+            self.name = name
+            self.logger = logger
+            self.last = 0.0
+            self._start: float | None = None
+
+        def __enter__(self):
+            self._start = time.perf_counter()
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            start = self._start
+            if start is None:
+                self.last = 0.0
+            else:
+                self.last = time.perf_counter() - start
+            return False
 
 
 def is_sci_notation(number: float) -> bool:
