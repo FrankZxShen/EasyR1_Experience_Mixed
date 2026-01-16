@@ -22,7 +22,6 @@ import psutil
 import torch
 import torch.distributed as dist
 from accelerate import init_empty_weights
-from codetiming import Timer
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import CPUOffload, MixedPrecision, ShardingStrategy
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
@@ -35,6 +34,30 @@ from transformers import (
     PreTrainedModel,
 )
 from transformers.modeling_utils import no_init_weights
+
+try:
+    from codetiming import Timer
+except ModuleNotFoundError:
+    import time
+
+    class Timer:
+        def __init__(self, name: str = "", logger=None):
+            self.name = name
+            self.logger = logger
+            self.last = 0.0
+            self._start: float | None = None
+
+        def __enter__(self):
+            self._start = time.perf_counter()
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            start = self._start
+            if start is None:
+                self.last = 0.0
+            else:
+                self.last = time.perf_counter() - start
+            return False
 
 from ..models.monkey_patch import apply_ulysses_patch
 from ..protocol import DataProto
